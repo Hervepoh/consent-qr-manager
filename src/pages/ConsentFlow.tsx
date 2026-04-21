@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react';
 import { z } from 'zod';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  MessageSquare, 
-  Mail, 
-  Phone, 
-  CheckCircle2, 
-  Search, 
-  Globe, 
-  UserCircle, 
-  Sun, 
+import {
+  MessageSquare,
+  Mail,
+  Phone,
+  CheckCircle2,
+  Search,
+  Globe,
+  UserCircle,
+  Sun,
   Moon,
   ChevronRight,
   ArrowLeft,
@@ -42,12 +42,12 @@ const API_BASE = 'http://localhost:3001/api';
 const StepIndicator = ({ current, total }: { current: number, total: number }) => (
   <div className="flex gap-1 justify-center mb-4">
     {Array.from({ length: total }).map((_, i) => (
-      <div 
-        key={i} 
+      <div
+        key={i}
         className={cn(
           "step-indicator-item",
           i + 1 === current ? "step-indicator-active" : "step-indicator-inactive"
-        )} 
+        )}
       />
     ))}
   </div>
@@ -99,7 +99,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
 
   const handleSendOtp = async () => {
     if (!channel || !contact) return;
-    
+
     // Final Validation check before sending
     const schema = channel === 'EMAIL' ? Schemas.email : Schemas.phone;
     const result = schema.safeParse(contact);
@@ -153,7 +153,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
 
   const handleVerifyContract = async () => {
     if (!contract) return;
-    
+
     const result = Schemas.contract.safeParse(contract);
     if (!result.success) {
       setSearchError(result.error.issues[0].message);
@@ -165,7 +165,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     try {
       const response = await fetch(`${API_BASE}/contract/search/${contract}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setClientName(data.fullname || data.branch || `Client - ${contract}`);
       } else {
@@ -237,13 +237,13 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').slice(0, 6);
     if (!/^\d*$/.test(pastedData)) return;
-    
+
     const newOtp = [...otp];
     pastedData.split('').forEach((char, i) => {
       if (i < 6) newOtp[i] = char;
     });
     setOtp(newOtp);
-    
+
     // Focus last filled or next input
     const nextIndex = Math.min(pastedData.length, 5);
     document.getElementById(`otp-${nextIndex}`)?.focus();
@@ -280,29 +280,29 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
   };
 
   return (
-    <div className="w-full h-full flex flex-col justify-center items-center py-4 px-4 overflow-hidden">
+    <div className="w-full h-full flex flex-col justify-center items-center py-1 px-1 overflow-hidden">
       {/* Top Navigation / Controls Container */}
       <div className="w-full max-w-lg mb-6 flex justify-between items-center bg-card/40 backdrop-blur-xl p-3 rounded-2xl border border-border/40 shadow-lg shrink-0">
         <div className="flex items-center gap-3">
           <img src="/eneo-logo.png" alt="Eneo Cameroon" className="h-8 w-auto object-contain" />
           <div className="hidden sm:block h-6 w-[1px] bg-border/40" />
           <span className="hidden sm:block text-[9px] uppercase tracking-widest font-bold text-muted-foreground leading-none">
-            {slogan}
+            {/* {slogan} */}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-xl h-8 w-8 bg-background/50 hover:bg-background shadow-inner border border-border/20">
             {theme === 'light' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
           </Button>
-          <div className="flex bg-muted/40 p-0.5 rounded-xl border border-border/20">
+          <div className="flex bg-muted/40 p-1 rounded-xl border border-border/20">
             {['FR', 'EN'].map((lang) => (
               <button
                 key={lang}
                 onClick={() => setLanguage(lang as 'FR' | 'EN')}
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-[9px] font-black transition-all",
-                  language === lang 
-                    ? "bg-primary text-primary-foreground shadow-md" 
+                  language === lang
+                    ? "bg-primary text-primary-foreground shadow-md"
                     : "text-muted-foreground hover:text-foreground opacity-60"
                 )}
               >
@@ -313,17 +313,17 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
         </div>
       </div>
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-lg mb-4 text-center px-4 shrink-0"
       >
         <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">
-          <span className="bg-clip-text text-transparent bg-linear-to-r from-primary via-primary/90 to-primary/40">
+          <span className="text-primary">
             {strings.heroTitle}
           </span>
         </h1>
-        <p className="text-[9px] sm:text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mt-2 leading-relaxed max-w-[90%] mx-auto">
+        <p className="text-xl sm:text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mt-2 leading-relaxed max-w-[90%] mx-auto">
           {strings.heroSubtitle}
         </p>
       </motion.div>
@@ -361,8 +361,8 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                         }}
                         className={cn(
                           "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all gap-2 group/opt",
-                          channel === c 
-                            ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/10 scale-[1.02]" 
+                          channel === c
+                            ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/10 scale-[1.02]"
                             : "border-border/40 bg-background/50 hover:border-primary/40 text-muted-foreground"
                         )}
                       >
@@ -409,9 +409,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                   </div>
                 </CardContent>
                 <CardFooter className="pb-6 pt-2 shrink-0">
-                  <Button 
-                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl" 
-                    onClick={handleSendOtp} 
+                  <Button
+                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl"
+                    onClick={handleSendOtp}
                     disabled={!channel || !contact || loading || !!searchError}
                   >
                     {loading ? strings.processing : strings.continue}
@@ -457,9 +457,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                       />
                     ))}
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="w-full text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60"
                     onClick={() => setView('consent')}
                   >
@@ -467,9 +467,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                   </Button>
                 </CardContent>
                 <CardFooter className="pb-8 shrink-0">
-                  <Button 
-                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl" 
-                    onClick={handleVerifyOtp} 
+                  <Button
+                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl"
+                    onClick={handleVerifyOtp}
                     disabled={otp.some(d => !d) || loading}
                   >
                     {loading ? strings.processing : strings.otpBtn}
@@ -505,9 +505,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                         onChange={(e) => validateContract(e.target.value)}
                         className="h-10 text-base font-bold rounded-xl"
                       />
-                      <Button 
-                        size="icon" 
-                        onClick={handleVerifyContract} 
+                      <Button
+                        size="icon"
+                        onClick={handleVerifyContract}
                         disabled={!contract || verifyingContract || !!searchError}
                         className="h-10 w-10 rounded-xl"
                       >
@@ -518,7 +518,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                         )}
                       </Button>
                     </div>
-                    
+
                     <AnimatePresence>
                       {searchError && (
                         <motion.div
@@ -550,8 +550,8 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                           onClick={() => setPrefLang(lang as 'FR' | 'EN')}
                           className={cn(
                             "flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
-                            prefLang === lang 
-                              ? "bg-primary text-primary-foreground shadow-md" 
+                            prefLang === lang
+                              ? "bg-primary text-primary-foreground shadow-md"
                               : "text-muted-foreground opacity-60 hover:opacity-100"
                           )}
                         >
@@ -570,8 +570,8 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                           onClick={() => setStatus(s)}
                           className={cn(
                             "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all",
-                            status === s 
-                              ? "bg-primary border-primary text-primary-foreground shadow-md" 
+                            status === s
+                              ? "bg-primary border-primary text-primary-foreground shadow-md"
                               : "border-border/40 bg-background/50 text-muted-foreground"
                           )}
                         >
@@ -582,14 +582,14 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                   </div>
 
                   <div className="space-y-3 pt-2">
-                    <Checkbox 
-                      checked={isNotOwner} 
+                    <Checkbox
+                      checked={isNotOwner}
                       onCheckedChange={setIsNotOwner}
                     >
                       {strings.notOwnerLabel}
                     </Checkbox>
-                    <Checkbox 
-                      checked={acceptedTerms} 
+                    <Checkbox
+                      checked={acceptedTerms}
                       onCheckedChange={setAcceptedTerms}
                     >
                       {strings.termsLabel}
@@ -597,9 +597,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                   </div>
                 </CardContent>
                 <CardFooter className="pb-8 shrink-0 pt-2">
-                  <Button 
-                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl" 
-                    onClick={handleFinalSubmit} 
+                  <Button
+                    className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl"
+                    onClick={handleFinalSubmit}
                     disabled={!clientName || !acceptedTerms || loading}
                   >
                     {loading ? strings.processing : strings.finalize}
@@ -630,18 +630,18 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                 </CardHeader>
                 <CardContent className="px-6 flex-1 overflow-y-auto">
                   <div className="bg-background/40 rounded-2xl p-6 space-y-3 text-left border border-border/10 shadow-inner">
-                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        <span>{strings.canal}</span>
-                        <Badge variant="outline" className="text-primary border-primary/20">{channel}</Badge>
-                     </div>
-                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        <span>{strings.lang}</span>
-                        <span className="text-foreground">{prefLang === 'FR' ? 'Français' : 'English'}</span>
-                     </div>
-                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        <span>{strings.status}</span>
-                        <span className="text-foreground">{status}</span>
-                     </div>
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      <span>{strings.canal}</span>
+                      <Badge variant="outline" className="text-primary border-primary/20">{channel}</Badge>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      <span>{strings.lang}</span>
+                      <span className="text-foreground">{prefLang === 'FR' ? 'Français' : 'English'}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      <span>{strings.status}</span>
+                      <span className="text-foreground">{status}</span>
+                    </div>
                   </div>
                 </CardContent>
                 <CardFooter className="pb-10 pt-6 shrink-0">
@@ -654,10 +654,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
           )}
         </AnimatePresence>
       </div>
-      
-      <div className="shrink-0 pt-4 flex flex-col items-center gap-1 opacity-40">
-        <Zap size={16} className="text-primary" />
-        <div className="text-[8px] font-black uppercase tracking-[0.4em] text-muted-foreground">{slogan}</div>
+
+      <div className="shrink-0 pt-4 flex items-center gap-1 opacity-40">
+        <div className="text-[8px] font-black uppercase tracking-[0.4em] text-muted-foreground">{slogan}</div>   <Zap size={16} className="text-primary" />
       </div>
     </div>
   );
