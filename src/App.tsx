@@ -23,7 +23,7 @@ const t = {
     otpTitle: 'Validation OTP',
     otpDesc: 'Code envoyé à',
     otpBtn: 'Valider',
-    otpError: 'Code invalide ! Astuce: utilisez 1234',
+    otpError: 'Code invalide !',
     profileTitle: 'Profil & Contrat',
     profileDesc: 'Vérifions vos informations de facturation.',
     contractLabel: 'Numéro de Contrat',
@@ -42,6 +42,10 @@ const t = {
     lang: 'Langue',
     status: 'Statut',
     finish: 'Terminer',
+    otpExpires: "L'OTP expire dans",
+    resendAfter: 'Renvoyer après',
+    resendBtn: "Renvoyer l'OTP",
+    blockedMsg: 'Service suspendu pour {min} min',
     edit: 'Modifier mes informations'
   },
   EN: {
@@ -80,6 +84,10 @@ const t = {
     lang: 'Language',
     status: 'Status',
     finish: 'Finish',
+    otpExpires: 'OTP expires in',
+    resendAfter: 'Resend after',
+    resendBtn: 'Resend OTP',
+    blockedMsg: 'Service suspended for {min} min',
     edit: 'Edit information'
   }
 };

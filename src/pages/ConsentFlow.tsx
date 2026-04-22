@@ -8,15 +8,14 @@ import {
   Phone,
   CheckCircle2,
   Search,
-  Globe,
   UserCircle,
   Sun,
   Moon,
-  ChevronRight,
   ArrowLeft,
-  Sparkles,
   Zap,
-  AlertCircle
+  AlertCircle,
+  Timer,
+  RefreshCw
 } from 'lucide-react';
 
 import { Button } from '../components/ui/Button';
@@ -67,6 +66,14 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
   const [loading, setLoading] = useState(false);
   const [verifyingContract, setVerifyingContract] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  // OTP Lifecycle & Rate Limiting States
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [blockedUntil, setBlockedUntil] = useState<Date | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number>(0); // in seconds
+  const [reBlockTime, setReBlockTime] = useState<number>(0);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
@@ -93,11 +100,33 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     setPrefLang(language);
   }, [language]);
 
+  // Countdown logic
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+
+      // Handle OTP Expiration
+      if (expiresAt) {
+        const diff = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+        setTimeLeft(diff);
+      }
+
+      // Handle Rate Limit Blocking
+      if (blockedUntil) {
+        const diff = Math.max(0, Math.floor((blockedUntil.getTime() - now.getTime()) / 1000));
+        setReBlockTime(diff);
+        if (diff === 0) setBlockedUntil(null);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [expiresAt, blockedUntil]);
+
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
   const slogan = language === 'FR' ? "L'énergie du Cameroun" : "The energy of Cameroon";
 
-  const handleSendOtp = async () => {
+  const handleSendOtp = async (isResend = false) => {
     if (!channel || !contact) return;
 
     // Final Validation check before sending
@@ -109,16 +138,29 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     }
 
     setLoading(true);
+    setSearchError(null);
     try {
       const response = await fetch(`${API_BASE}/otp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contact, channel }),
       });
+
+      const data = await response.json();
+
+      if (response.status === 429) {
+        const blockEnds = new Date(data.blockedUntil);
+        setBlockedUntil(blockEnds);
+        setSearchError(strings.blockedMsg.replace('{min}', data.waitMinutes));
+        return;
+      }
+
       if (response.ok) {
-        setView('otp');
+        setExpiresAt(new Date(data.expiresAt));
+        if (data.blockedUntil) setBlockedUntil(new Date(data.blockedUntil));
+        if (!isResend) setView('otp');
       } else {
-        alert('Failed to send OTP. Please try again.');
+        alert(data.error || 'Failed to send OTP. Please try again.');
       }
     } catch (error) {
       console.error('Error sending OTP:', error);
@@ -139,6 +181,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
       });
       const data = await response.json();
       if (data.success) {
+        setSessionToken(data.token);
         setView('profile');
       } else {
         alert(data.error || strings.otpError);
@@ -186,7 +229,10 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     try {
       const response = await fetch(`${API_BASE}/consent/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`
+        },
         body: JSON.stringify({
           contractNumber: contract,
           clientName,
@@ -203,7 +249,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
           particleCount: 150,
           spread: 70,
           origin: { y: 0.6 },
-          colors: ['#98C012', '#0070B2', '#ffffff']
+          colors: ['#14689e', '#8bc53f', '#ffffff']
         });
       } else {
         alert('Failed to save consent. Please try again.');
@@ -279,22 +325,28 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
     }
   };
 
+  const formatTime = (seconds: number) => {
+    const min = Math.floor(seconds / 60);
+    const sec = seconds % 60;
+    return `${min}:${sec.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div className="w-full h-full flex flex-col justify-center items-center py-1 px-1 overflow-hidden">
+    <div className="w-full h-full flex flex-col justify-center items-center py-4 px-4 overflow-hidden">
       {/* Top Navigation / Controls Container */}
       <div className="w-full max-w-lg mb-6 flex justify-between items-center bg-card/40 backdrop-blur-xl p-3 rounded-2xl border border-border/40 shadow-lg shrink-0">
         <div className="flex items-center gap-3">
           <img src="/eneo-logo.png" alt="Eneo Cameroon" className="h-8 w-auto object-contain" />
           <div className="hidden sm:block h-6 w-[1px] bg-border/40" />
           <span className="hidden sm:block text-[9px] uppercase tracking-widest font-bold text-muted-foreground leading-none">
-            {/* {slogan} */}
+            {slogan}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-xl h-8 w-8 bg-background/50 hover:bg-background shadow-inner border border-border/20">
             {theme === 'light' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
           </Button>
-          <div className="flex bg-muted/40 p-1 rounded-xl border border-border/20">
+          <div className="flex bg-muted/40 p-0.5 rounded-xl border border-border/20">
             {['FR', 'EN'].map((lang) => (
               <button
                 key={lang}
@@ -319,11 +371,11 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
         className="w-full max-w-lg mb-4 text-center px-4 shrink-0"
       >
         <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">
-          <span className="text-primary">
+          <span className="bg-clip-text text-transparent bg-linear-to-r from-primary via-secondary to-secondary/80">
             {strings.heroTitle}
           </span>
         </h1>
-        <p className="text-xl sm:text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mt-2 leading-relaxed max-w-[90%] mx-auto">
+        <p className="text-[9px] sm:text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mt-2 leading-relaxed max-w-[90%] mx-auto">
           {strings.heroSubtitle}
         </p>
       </motion.div>
@@ -411,7 +463,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                 <CardFooter className="pb-6 pt-2 shrink-0">
                   <Button
                     className="w-full h-14 text-lg font-black uppercase tracking-widest shimmer-btn rounded-xl"
-                    onClick={handleSendOtp}
+                    onClick={() => handleSendOtp(false)}
                     disabled={!channel || !contact || loading || !!searchError}
                   >
                     {loading ? strings.processing : strings.continue}
@@ -453,10 +505,54 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                         onKeyDown={(e) => handleOtpKeyDown(i, e)}
                         onPaste={handleOtpPaste}
                         autoFocus={i === 0}
-                        className="w-11 h-14 text-center text-2xl font-black rounded-xl border-2 border-border/40 bg-background/50 focus:border-primary outline-none"
+                        className="w-11 h-14 text-center text-2xl font-black rounded-xl border-2 border-border/40 bg-background/50 focus:border-primary outline-none transition-all"
                       />
                     ))}
                   </div>
+
+                  {/* OTP Lifecycle / Resend Section */}
+                  <div className="space-y-4 px-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Timer size={14} className={cn(timeLeft < 60 ? "text-destructive animate-pulse" : "text-primary")} />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          {strings.otpExpires}: <span className={cn("font-mono text-xs", timeLeft < 60 ? "text-destructive" : "text-foreground")}>{formatTime(timeLeft)}</span>
+                        </span>
+                      </div>
+
+                      <Button
+                        variant="link"
+                        size="sm"
+                        onClick={() => handleSendOtp(true)}
+                        disabled={timeLeft > 0 || !!blockedUntil || loading}
+                        className="text-[10px] font-black uppercase tracking-widest p-0 h-auto"
+                      >
+                        <RefreshCw size={12} className={cn("mr-1", loading && "animate-spin")} />
+                        {strings.resendBtn}
+                      </Button>
+                    </div>
+
+                    <AnimatePresence>
+                      {blockedUntil && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2 text-destructive">
+                            <AlertCircle size={14} />
+                            <span className="text-[10px] font-black uppercase tracking-tighter">
+                              {strings.blockedMsg.replace('{min}', Math.ceil(reBlockTime / 60))}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-destructive">
+                            {formatTime(reBlockTime)}
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
                   <Button
                     variant="ghost"
                     size="sm"
@@ -655,8 +751,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
         </AnimatePresence>
       </div>
 
-      <div className="shrink-0 pt-4 flex items-center gap-1 opacity-40">
-        <div className="text-[8px] font-black uppercase tracking-[0.4em] text-muted-foreground">{slogan}</div>   <Zap size={16} className="text-primary" />
+      <div className="shrink-0 pt-4 flex flex-col items-center gap-1 opacity-40">
+        <Zap size={16} className="text-primary" />
+        <div className="text-[8px] font-black uppercase tracking-[0.4em] text-muted-foreground">{slogan}</div>
       </div>
     </div>
   );

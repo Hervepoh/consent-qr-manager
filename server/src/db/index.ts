@@ -11,6 +11,11 @@ const connection = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'consent_manager',
   port: Number(process.env.DB_PORT) || 3306,
+  connectionLimit: 100,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+  waitForConnections: true,
+  idleTimeout: 60000, // 60 seconds
 });
 
 export const db = drizzle(connection, { schema, mode: 'default' });
