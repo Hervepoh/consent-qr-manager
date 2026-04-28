@@ -50,18 +50,18 @@ export class MailService {
         to: string,
         subject: string,
         html: string
-    ): Promise<boolean> {
+    ): Promise<{ success: boolean; response?: string; error?: string }> {
         try {
-            await transporter.sendMail({
+            const info = await transporter.sendMail({
                 from: `"Eneo" <${process.env.SMTP_USER}>`,
                 to,
                 subject,
                 html,
             });
-            return true;
-        } catch (error) {
+            return { success: true, response: JSON.stringify(info) };
+        } catch (error: any) {
             console.error("[MAIL] Erreur SMTP:", error);
-            return false;
+            return { success: false, error: error?.message || "SMTP Error" };
         }
     }
 
@@ -113,29 +113,46 @@ export class MailService {
 
         // 3. Tentative d'envoi immédiat
         try {
-            const success = await this.callSMTP(data.to, subject, html);
+            const result = await this.callSMTP(data.to, subject, html);
 
-            if (success) {
+            if (result.success) {
                 await db.update(mailQueue)
-                    .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: 1 })
+                    .set({ 
+                        status: 'sent', 
+                        sentAt: new Date(), 
+                        lastAttemptAt: new Date(), 
+                        attempts: 1,
+                        providerResponse: result.response
+                    })
                     .where(eq(mailQueue.id, queueId));
 
                 console.log(`[MAIL] ✅ Mail #${queueId} envoyé à ${data.to}`);
                 return { queued: true, sent: true };
             } else {
                 await db.update(mailQueue)
-                    .set({ attempts: 1, lastAttemptAt: new Date(), scheduledFor: this.retryDelay(1) })
+                    .set({ 
+                        attempts: 1, 
+                        lastAttemptAt: new Date(), 
+                        scheduledFor: this.retryDelay(1),
+                        providerResponse: result.response,
+                        lastError: result.error
+                    })
                     .where(eq(mailQueue.id, queueId));
 
-                console.warn(`[MAIL] ⚠️ Mail #${queueId} en attente de retry`);
+                console.warn(`[MAIL] ⚠️ Mail #${queueId} en attente de retry: ${result.error}`);
                 return { queued: true, sent: false };
             }
-        } catch (err) {
+        } catch (err: any) {
             await db.update(mailQueue)
-                .set({ attempts: 1, lastAttemptAt: new Date(), scheduledFor: this.retryDelay(1) })
+                .set({ 
+                    attempts: 1, 
+                    lastAttemptAt: new Date(), 
+                    scheduledFor: this.retryDelay(1),
+                    lastError: err?.message
+                })
                 .where(eq(mailQueue.id, queueId));
 
-            console.error(`[MAIL] 🔥 Erreur réseau #${queueId}:`, err);
+            console.error(`[MAIL] 🔥 Erreur critique #${queueId}:`, err);
             return { queued: true, sent: false };
         }
     }
@@ -168,12 +185,19 @@ export class MailService {
                 // Re-render le template avec les données stockées
                 const data: MailInterface = JSON.parse(mail.templateData);
                 const html = await this.renderTemplate(mail.templateName, data);
-                const success = await this.callSMTP(mail.to, mail.subject, html);
+                const result = await this.callSMTP(mail.to, mail.subject, html);
                 const newAttempts = mail.attempts + 1;
 
-                if (success) {
+                if (result.success) {
                     await db.update(mailQueue)
-                        .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: newAttempts })
+                        .set({ 
+                            status: 'sent', 
+                            sentAt: new Date(), 
+                            lastAttemptAt: new Date(), 
+                            attempts: newAttempts,
+                            providerResponse: result.response,
+                            lastError: null
+                        })
                         .where(eq(mailQueue.id, mail.id));
                     console.log(`[MAIL CRON] ✅ Mail #${mail.id} envoyé (tentative ${newAttempts})`);
                 } else {
@@ -184,14 +208,16 @@ export class MailService {
                             lastAttemptAt: new Date(),
                             status: isMaxed ? 'failed' : 'pending',
                             scheduledFor: isMaxed ? null : this.retryDelay(newAttempts),
+                            providerResponse: result.response,
+                            lastError: result.error
                         })
                         .where(eq(mailQueue.id, mail.id));
 
                     if (isMaxed) {
-                        console.error(`[MAIL CRON] 💀 Mail #${mail.id} abandonné après ${newAttempts} tentatives`);
+                        console.error(`[MAIL CRON] 💀 Mail #${mail.id} abandonné après ${newAttempts} tentatives: ${result.error}`);
                     }
                 }
-            } catch (err) {
+            } catch (err: any) {
                 console.error(`[MAIL CRON] 🔥 Erreur mail #${mail.id}:`, err);
             }
         }

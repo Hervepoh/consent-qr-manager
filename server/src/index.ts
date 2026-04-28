@@ -11,6 +11,7 @@ import { db } from './db';
 import { otps, consents, otpThrottle } from './db/schema';
 import { eq, and, gt, desc, sql } from 'drizzle-orm';
 import { SMSService } from './services/sms.service';
+import { MailService } from './services/mail.service';
 import { adminAuth } from './middleware/auth';
 import { registerCrons } from './crons';
 
@@ -126,13 +127,14 @@ app.post('/api/otp/send', async (req, res) => {
   try {
     // Throttle Check
     let throttle = await db.query.otpThrottle.findFirst({
-      where: eq(otpThrottle.contact, contact)
+      where: and(eq(otpThrottle.contact, contact), eq(otpThrottle.action, 'send'))
     });
 
     if (throttle && throttle.blockedUntil && throttle.blockedUntil > new Date()) {
       const waitMs = throttle.blockedUntil.getTime() - Date.now();
       return res.status(429).json({
         error: 'Too many requests',
+        code: 'TOO_MANY_ATTEMPTS',
         blockedUntil: throttle.blockedUntil,
         waitMinutes: Math.ceil(waitMs / 60000)
       });
@@ -164,6 +166,7 @@ app.post('/api/otp/send', async (req, res) => {
     if (!throttle) {
       await db.insert(otpThrottle).values({
         contact,
+        action: 'send',
         attempts: newAttempts,
         blockedUntil: nextBlockedUntil,
         nextBlockDurationMinutes: nextDuration
@@ -175,14 +178,14 @@ app.post('/api/otp/send', async (req, res) => {
           blockedUntil: nextBlockedUntil,
           nextBlockDurationMinutes: nextDuration
         })
-        .where(eq(otpThrottle.contact, contact));
+        .where(and(eq(otpThrottle.contact, contact), eq(otpThrottle.action, 'send')));
     }
 
-    // Send via SMS
+    // Send via SMS or Email
     if (channel === 'SMS' || channel === 'WHATSAPP') {
       await SMSService.sendOTP(contact, code);
-    } else {
-      console.log(`[EMAIL MOCK] Sending OTP ${code} to ${contact}`);
+    } else if (channel === 'EMAIL') {
+      await MailService.sendOTP({ to: contact, name: "Cher Client" }, code);
     }
 
     res.json({
@@ -227,11 +230,17 @@ app.post('/api/otp/verify', async (req, res) => {
   try {
     // [FORTRESS] Brute-force protection for verification
     let throttle = await db.query.otpThrottle.findFirst({
-      where: eq(otpThrottle.contact, contact)
+      where: and(eq(otpThrottle.contact, contact), eq(otpThrottle.action, 'verify'))
     });
 
     if (throttle && throttle.blockedUntil && throttle.blockedUntil > new Date()) {
-      return res.status(429).json({ error: 'Too many attempts. Account temporary locked.' });
+      const waitMs = throttle.blockedUntil.getTime() - Date.now();
+      return res.status(429).json({
+        error: 'Too many attempts. Account temporary locked.',
+        code: 'TOO_MANY_ATTEMPTS',
+        blockedUntil: throttle.blockedUntil,
+        waitMinutes: Math.ceil(waitMs / 60000)
+      });
     }
 
     const latestOtp = await db.query.otps.findFirst({
@@ -247,7 +256,7 @@ app.post('/api/otp/verify', async (req, res) => {
       // Clear throttle on successful verification
       await db.update(otpThrottle)
         .set({ attempts: 0, blockedUntil: null, nextBlockDurationMinutes: 5 })
-        .where(eq(otpThrottle.contact, contact));
+        .where(and(eq(otpThrottle.contact, contact), eq(otpThrottle.action, 'verify')));
 
       // [FORTRESS] Generate Session Token (JWT)
       const sessionToken = jwt.sign(
@@ -275,6 +284,7 @@ app.post('/api/otp/verify', async (req, res) => {
       if (!throttle) {
         await db.insert(otpThrottle).values({
           contact,
+          action: 'verify',
           attempts: newAttempts,
           blockedUntil: nextBlockedUntil,
           nextBlockDurationMinutes: nextDuration
@@ -282,12 +292,23 @@ app.post('/api/otp/verify', async (req, res) => {
       } else {
         await db.update(otpThrottle)
           .set({ attempts: newAttempts, blockedUntil: nextBlockedUntil, nextBlockDurationMinutes: nextDuration })
-          .where(eq(otpThrottle.contact, contact));
+          .where(and(eq(otpThrottle.contact, contact), eq(otpThrottle.action, 'verify')));
+      }
+
+      if (nextBlockedUntil) {
+        return res.status(429).json({
+          success: false,
+          error: 'Too many attempts. Account temporary locked.',
+          code: 'TOO_MANY_ATTEMPTS',
+          blockedUntil: nextBlockedUntil,
+          waitMinutes: throttle?.nextBlockDurationMinutes || 5
+        });
       }
 
       res.status(400).json({ 
         success: false, 
         error: 'Invalid or expired code',
+        code: 'INVALID_OTP',
         attemptsLeft: Math.max(0, 5 - newAttempts)
       });
     }
@@ -355,11 +376,16 @@ app.get('/api/contract/search/:id', async (req, res) => {
 
 // Submit final consent
 app.post('/api/consent/submit', async (req, res) => {
-  const { contractNumber, clientName, channel, contactValue, language, status, isNotOwner } = req.body;
+  let { contractNumber, clientName, channel, contactValue, language, status, isNotOwner } = req.body;
   const authHeader = req.headers.authorization;
 
   if (!contractNumber || !clientName || !channel || !contactValue || !language || !status) {
     return res.status(400).json({ error: 'Missing fields' });
+  }
+
+  // Normalize phone if channel is SMS/WHATSAPP to match session token
+  if (channel === 'SMS' || channel === 'WHATSAPP') {
+    contactValue = normalizePhone(contactValue);
   }
 
   // [FORTRESS] Verify Session Token

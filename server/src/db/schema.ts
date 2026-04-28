@@ -15,12 +15,17 @@ export const otps = mysqlTable('otps', {
 });
 
 export const otpThrottle = mysqlTable('otp_throttle', {
-  contact: varchar('contact', { length: 255 }).primaryKey(),
+  contact: varchar('contact', { length: 255 }).notNull(),
+  action: varchar('action', { length: 20 }).notNull(), // 'send' | 'verify'
   attempts: int('attempts').default(0),
   blockedUntil: timestamp('blocked_until'),
   nextBlockDurationMinutes: int('next_block_duration_minutes').default(5),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
-});
+}, (table) => ({
+  pk: index('pk').on(table.contact, table.action),
+}));
+// Note: En MySQL, on utilisera une clé composite. 
+// Pour simplifier l'accès, je garde l'index et je gèrerai le filtrage dans le code.
 
 export const consents = mysqlTable('consents', {
   id: serial('id').primaryKey(),
@@ -47,6 +52,8 @@ export const smsQueue = mysqlTable('sms_queue', {
   sentAt: timestamp('sent_at'),
   createdAt: timestamp('created_at').defaultNow(),
   scheduledFor: timestamp('scheduled_for').defaultNow(), // pour retry différé
+  providerResponse: text('provider_response'),
+  lastError: text('last_error'),
 }, (table) => ({
   statusIdx: index('status_idx').on(table.status),
   scheduledIdx: index('scheduled_idx').on(table.scheduledFor),
@@ -65,6 +72,8 @@ export const mailQueue = mysqlTable('mail_queue', {
   sentAt: timestamp('sent_at'),
   scheduledFor: timestamp('scheduled_for').defaultNow(),
   createdAt: timestamp('created_at').defaultNow(),
+  providerResponse: text('provider_response'),
+  lastError: text('last_error'),
 }, (table) => ({
   statusIdx: index('mail_status_idx').on(table.status),
   scheduledIdx: index('mail_scheduled_idx').on(table.scheduledFor),

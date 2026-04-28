@@ -29,6 +29,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Copier le JS compilé depuis le stage builder
 COPY --from=builder /app/dist ./dist
 
+# Copier les templates d'e-mail
+COPY --from=builder /app/mail ./mail
+
 # Copier la config drizzle pour les migrations en prod
 COPY drizzle.config.prod.js ./
 

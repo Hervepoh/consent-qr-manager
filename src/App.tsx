@@ -46,9 +46,16 @@ const t = {
     resendAfter: 'Renvoyer après',
     resendBtn: "Renvoyer l'OTP",
     blockedMsg: 'Service suspendu pour {min} min',
-    edit: 'Modifier mes informations'
+    edit: 'Modifier mes informations',
+    // Nouveaux messages d'erreur
+    errTooManyAttempts: 'Trop de tentatives ! Votre compte est suspendu pour {min} minutes par sécurité.',
+    errInvalidOtp: 'Le code saisi est incorrect ou a expiré. Veuillez réessayer.',
+    errNetwork: 'Une erreur réseau est survenue. Vérifiez votre connexion.',
+    errContractNotFound: 'Numéro de contrat introuvable. Veuillez vérifier votre facture.',
+    errSaveFailed: "Échec de l'enregistrement. Veuillez réessayer plus tard.",
   },
   EN: {
+    // ... existing ...
     adminTitle: 'QR Generator',
     adminDesc: 'Scan to configure your invoice reception.',
     adminBtn: 'Start Test Flow',
@@ -88,9 +95,17 @@ const t = {
     resendAfter: 'Resend after',
     resendBtn: 'Resend OTP',
     blockedMsg: 'Service suspended for {min} min',
-    edit: 'Edit information'
+    edit: 'Edit information',
+    // New error messages
+    errTooManyAttempts: 'Too many attempts! Your account is suspended for {min} minutes for security.',
+    errInvalidOtp: 'The code entered is incorrect or has expired. Please try again.',
+    errNetwork: 'A network error occurred. Please check your connection.',
+    errContractNotFound: 'Contract number not found. Please check your invoice.',
+    errSaveFailed: 'Saving failed. Please try again later.',
   }
 };
+
+import { Toaster } from 'sonner';
 
 function App() {
   const [language, setLanguage] = useState<'FR' | 'EN'>('FR');
@@ -103,6 +118,7 @@ function App() {
           <Route path="/" element={<ConsentFlow strings={strings} language={language} setLanguage={setLanguage} />} />
           <Route path="/admin" element={<Admin strings={strings} />} />
         </Routes>
+        <Toaster position="bottom-right" richColors />
       </div>
     </Router>
   );

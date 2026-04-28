@@ -30,9 +30,8 @@ export class SMSService {
   }
 
   // ─── Appel réel à l'API mtarget ─────────────────────────────────────────────
-  private static async callAPI(phone: string, message: string): Promise<boolean> {
+  private static async callAPI(phone: string, message: string): Promise<{ success: boolean; response?: string; error?: string }> {
     const formattedPhone = this.formatPhone(phone);
-
     const urlencoded = new URLSearchParams();
     urlencoded.append("username", this.USERNAME);
     urlencoded.append("password", this.PASSWORD);
@@ -40,27 +39,44 @@ export class SMSService {
     urlencoded.append("msg", message);
     urlencoded.append("sender", this.SENDER);
 
-    const response = await fetch(this.SMS_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": "SERVERID=B",
-      },
-      body: urlencoded,
-      signal: AbortSignal.timeout(30_000), // timeout 30s pour plus de résilience
-    });
+    // Tentative avec retry immédiat (max 2 essais) pour gérer les ConnectTimeout passagers
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await fetch(this.SMS_API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cookie": "SERVERID=B",
+          },
+          body: urlencoded,
+          signal: AbortSignal.timeout(30_000), // timeout 30s
+        });
 
-    if (!response.ok) return false;
+        const result = await response.text();
+        
+        if (!response.ok) {
+          if (attempt === 1) continue; 
+          return { success: false, response: result, error: `HTTP ${response.status}` };
+        }
 
-    const result = await response.text();
-    const parsed = JSON.parse(result);
-    const smsResult = parsed?.results?.[0];
+        const parsed = JSON.parse(result);
+        const smsResult = parsed?.results?.[0];
 
-    const success = smsResult?.code === "0" || smsResult?.code === 0;
-    if (!success) {
-      console.error(`[SMS] ❌ API error: ${smsResult?.reason}`);
+        const success = smsResult?.code === "0" || smsResult?.code === 0;
+        if (success) return { success: true, response: result };
+        
+        if (attempt === 1) continue; 
+        return { success: false, response: result, error: "API Error Code" };
+      } catch (err: any) {
+        if (attempt === 1) {
+          console.warn(`[SMS] ⚠️ Tentative ${attempt} échouée (timeout/réseau), nouvel essai...`);
+          continue;
+        }
+        console.error(`[SMS] 🔥 Erreur réseau persistante après ${attempt} essais:`, err);
+        return { success: false, error: err?.message || "Unknown Network Error" };
+      }
     }
-    return success;
+    return { success: false, error: "Retries exhausted" };
   }
 
   // ─── Calcul du délai de retry exponentiel ───────────────────────────────────
@@ -90,12 +106,18 @@ export class SMSService {
 
     // 2. Tenter l'envoi immédiat
     try {
-      const success = await this.callAPI(formattedPhone, message);
+      const result = await this.callAPI(formattedPhone, message);
 
-      if (success) {
+      if (result.success) {
         // ✅ Envoi réussi → update status sent
         await db.update(smsQueue)
-          .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: 1 })
+          .set({ 
+            status: 'sent', 
+            sentAt: new Date(), 
+            lastAttemptAt: new Date(), 
+            attempts: 1,
+            providerResponse: result.response
+          })
           .where(eq(smsQueue.id, queueId));
 
         console.log(`[SMS] ✅ SMS #${queueId} envoyé immédiatement`);
@@ -107,19 +129,26 @@ export class SMSService {
             attempts: 1,
             lastAttemptAt: new Date(),
             scheduledFor: this.retryDelay(1),
+            providerResponse: result.response,
+            lastError: result.error
           })
           .where(eq(smsQueue.id, queueId));
 
-        console.warn(`[SMS] ⚠️ SMS #${queueId} en attente de retry`);
+        console.warn(`[SMS] ⚠️ SMS #${queueId} en attente de retry: ${result.error}`);
         return { queued: true, sent: false };
       }
-    } catch (err) {
-      // Timeout ou erreur réseau → laisser le cron s'en charger
+    } catch (err: any) {
+      // Erreur inattendue
       await db.update(smsQueue)
-        .set({ attempts: 1, lastAttemptAt: new Date(), scheduledFor: this.retryDelay(1) })
+        .set({ 
+          attempts: 1, 
+          lastAttemptAt: new Date(), 
+          scheduledFor: this.retryDelay(1),
+          lastError: err?.message
+        })
         .where(eq(smsQueue.id, queueId));
 
-      console.error(`[SMS] 🔥 Erreur réseau pour #${queueId}:`, err);
+      console.error(`[SMS] 🔥 Erreur critique pour #${queueId}:`, err);
       return { queued: true, sent: false };
     }
   }
@@ -148,12 +177,19 @@ export class SMSService {
 
     for (const sms of pending) {
       try {
-        const success = await this.callAPI(sms.phone, sms.message);
+        const result = await this.callAPI(sms.phone, sms.message);
         const newAttempts = sms.attempts + 1;
 
-        if (success) {
+        if (result.success) {
           await db.update(smsQueue)
-            .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: newAttempts })
+            .set({ 
+              status: 'sent', 
+              sentAt: new Date(), 
+              lastAttemptAt: new Date(), 
+              attempts: newAttempts,
+              providerResponse: result.response,
+              lastError: null
+            })
             .where(eq(smsQueue.id, sms.id));
           console.log(`[SMS CRON] ✅ SMS #${sms.id} envoyé (tentative ${newAttempts})`);
         } else {
@@ -164,14 +200,16 @@ export class SMSService {
               lastAttemptAt: new Date(),
               status: isMaxed ? 'failed' : 'pending',
               scheduledFor: isMaxed ? null : this.retryDelay(newAttempts),
+              providerResponse: result.response,
+              lastError: result.error
             })
             .where(eq(smsQueue.id, sms.id));
 
           if (isMaxed) {
-            console.error(`[SMS CRON] 💀 SMS #${sms.id} abandonné après ${newAttempts} tentatives`);
+            console.error(`[SMS CRON] 💀 SMS #${sms.id} abandonné après ${newAttempts} tentatives: ${result.error}`);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[SMS CRON] 🔥 Erreur pour SMS #${sms.id}:`, err);
       }
     }

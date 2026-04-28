@@ -52,7 +52,10 @@ const StepIndicator = ({ current, total }: { current: number, total: number }) =
   </div>
 );
 
+import { toast } from 'sonner';
+
 export default function ConsentFlow({ strings, language, setLanguage }: ConsentFlowProps) {
+  // ... existing states ...
   const [view, setView] = useState<View>('consent');
   const [channel, setChannel] = useState<Channel | null>(null);
   const [contact, setContact] = useState('');
@@ -151,7 +154,9 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
       if (response.status === 429) {
         const blockEnds = new Date(data.blockedUntil);
         setBlockedUntil(blockEnds);
-        setSearchError(strings.blockedMsg.replace('{min}', data.waitMinutes));
+        const msg = strings.errTooManyAttempts.replace('{min}', data.waitMinutes);
+        setSearchError(msg);
+        toast.error(msg);
         return;
       }
 
@@ -159,12 +164,13 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
         setExpiresAt(new Date(data.expiresAt));
         if (data.blockedUntil) setBlockedUntil(new Date(data.blockedUntil));
         if (!isResend) setView('otp');
+        toast.success(language === 'FR' ? 'Code envoyé !' : 'Code sent!');
       } else {
-        alert(data.error || 'Failed to send OTP. Please try again.');
+        toast.error(strings.errSaveFailed);
       }
     } catch (error) {
       console.error('Error sending OTP:', error);
-      alert('Network error. Is the server running?');
+      toast.error(strings.errNetwork);
     } finally {
       setLoading(false);
     }
@@ -180,15 +186,28 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
         body: JSON.stringify({ contact, code }),
       });
       const data = await response.json();
+      
+      if (response.status === 429) {
+        const blockEnds = new Date(data.blockedUntil);
+        setBlockedUntil(blockEnds);
+        const msg = strings.errTooManyAttempts.replace('{min}', data.waitMinutes);
+        toast.error(msg, {
+          duration: 6000,
+        });
+        return;
+      }
+
       if (data.success) {
         setSessionToken(data.token);
         setView('profile');
+        toast.success(language === 'FR' ? 'Authentification réussie' : 'Authentication successful');
       } else {
-        alert(data.error || strings.otpError);
+        const errorMsg = data.code === 'INVALID_OTP' ? strings.errInvalidOtp : (data.error || strings.otpError);
+        toast.error(errorMsg);
       }
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      alert('Network error. Please try again.');
+      toast.error(strings.errNetwork);
     } finally {
       setLoading(false);
     }
@@ -245,6 +264,7 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
       });
       if (response.ok) {
         setView('success');
+        toast.success(language === 'FR' ? 'Consentement enregistré !' : 'Consent saved!');
         confetti({
           particleCount: 150,
           spread: 70,
@@ -252,11 +272,11 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
           colors: ['#14689e', '#8bc53f', '#ffffff']
         });
       } else {
-        alert('Failed to save consent. Please try again.');
+        toast.error('Failed to save consent. Please try again.');
       }
     } catch (error) {
       console.error('Error submitting consent:', error);
-      alert('Network error. Please try again.');
+      toast.error('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -557,7 +577,10 @@ export default function ConsentFlow({ strings, language, setLanguage }: ConsentF
                     variant="ghost"
                     size="sm"
                     className="w-full text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60"
-                    onClick={() => setView('consent')}
+                    onClick={() => {
+                      setView('consent');
+                      setOtp(['', '', '', '', '', '']);
+                    }}
                   >
                     <ArrowLeft className="mr-2 h-3 w-3" /> {strings.edit}
                   </Button>
