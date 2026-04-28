@@ -16,6 +16,11 @@ services:
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - db-data:/var/lib/mysql
     ports:
@@ -65,6 +70,11 @@ services:
       SMTP_SERVICE: ${SMTP_SERVICE}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: >
       sh -c "npx drizzle-kit push --config=drizzle.config.prod.js && node dist/index.js"
     depends_on:
@@ -99,6 +109,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       server:
         condition: service_healthy
@@ -118,11 +133,47 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # ─── Monitoring (Dozzle) ──────────────────────────────
+  monitor:
+    image: amir20/dozzle:latest
+    container_name: consent-monitor
+    ports:
+      - "8888:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    networks:
+      - app-network
+
+  # ─── NOC Monitoring (Uptime Kuma) ─────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: consent-uptime
+    ports:
+      - "8889:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    networks:
+      - app-network
+
 # ──────────────────────────────────────────────────────
 #  Volumes & Réseaux
 # ──────────────────────────────────────────────────────
 volumes:
   db-data:
+    driver: local
+  uptime-kuma-data:
     driver: local
 
 networks:

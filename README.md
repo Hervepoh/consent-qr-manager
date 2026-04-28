@@ -1,108 +1,109 @@
-# React + TypeScript + Vite
+# 📘 Eneo QR Consent - Guide d'Administration Technique
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Ce document est destiné aux administrateurs système et au **NOC** pour la gestion, la surveillance et la maintenance de l'application de collecte de consentements clients.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🏗️ Architecture du Système
 
-## React Compiler
+L'application est entièrement conteneurisée via **Docker Compose** et repose sur 5 services interconnectés :
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1.  **`consent-frontend`** (Nginx) : Sert l'application React et fait office de reverse-proxy.
+2.  **`consent-server`** (Node.js/Express) : Cœur de l'application (API, Logique métier, Envoi OTP).
+3.  **`consent-db`** (MySQL 8) : Stockage persistant des consentements et des files d'attente.
+4.  **`consent-monitor`** (Dozzle) : Interface web pour la lecture des logs en temps réel.
+5.  **`consent-uptime`** (Uptime Kuma) : Dashboard de santé et alertes pour le NOC.
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🚀 Commandes Opérationnelles (Cheatsheet)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Démarrage et Mise à jour
+```bash
+# Lancer l'application complète (mode détaché)
+docker compose up -d
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+# Mettre à jour l'application après un changement de code
+docker compose up -d --build server frontend
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Arrêter l'application
+docker compose down
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Surveillance
+```bash
+# Voir l'état des conteneurs, CPU et RAM
+docker stats
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Voir les logs en ligne de commande
+docker compose logs -f server
 ```
 
+---
 
+## 📊 Monitoring & Observabilité (NOC)
 
-Pour accéder à votre base de données depuis une machine distante en toute sécurité, il ne faut surtout pas ouvrir le port 3306 sur internet.
+| Service | Accès | Fonction |
+| :--- | :--- | :--- |
+| **Dozzle** | `http://<IP_SERVEUR>:8888` | **Logs en temps réel**. Recherche rapide par numéro de contrat ou téléphone. |
+| **Uptime Kuma** | `http://<IP_SERVEUR>:3002` | **Dashboard NOC**. Statut UP/DOWN, Latence, Historique des pannes. |
 
-La solution standard et la plus sécurisée est d'utiliser un Tunnel SSH.
+> [!TIP]
+> **Identifiants Uptime Kuma** :
+> - Utilisateur : `admin`
+> - Mot de passe : `x5bi8!QUbMkrBR_` (À modifier au premier lancement)
 
-Pourquoi utiliser un Tunnel SSH ?
-Le port 3306 reste fermé au monde (lié à 127.0.0.1 comme nous venons de le faire).
-Vous passez par votre connexion SSH (déjà sécurisée et cryptée).
-C'est comme si votre machine distante était "téléportée" sur le serveur.
-Comment faire ?
-1. Via la ligne de commande (Terminal)
-Depuis votre machine distante (votre PC personnel par exemple), exécutez cette commande :
+---
 
-bash
-ssh -L 3307:127.0.0.1:3306 utilisateur@votre-serveur-ip
+## 🗄️ Gestion de la Base de Données
 
-3307 : C'est le port sur votre machine locale (vous pouvez mettre ce que vous voulez).
-127.0.0.1:3306 : C'est la destination sur le serveur (votre base de données).
-Une fois connecté en SSH, laissez la fenêtre ouverte.
-2. Via un client graphique (DBeaver / MySQL Workbench)
-La plupart des outils modernes ont une option "SSH Tunnel" intégrée :
+### Accès Sécurisé (Tunnel SSH)
+Le port MySQL (**3306**) n'est pas exposé sur Internet. Pour y accéder avec un outil comme DBeaver :
+1.  Utilisez un **Tunnel SSH** vers l'IP du serveur.
+2.  Hôte local : `127.0.0.1` | Port : `3308` (mappé vers 3306 interne).
+3.  Utilisateur : `consent_user` | Pass : `ConsentPass123!` (voir `.env`).
 
-Hôte DB : 127.0.0.1 (et non l'IP du serveur !)
-Port DB : 3306
-Allez dans l'onglet SSH :
-Cochez "Use SSH Tunnel".
-Hôte SSH : votre-serveur-ip
-Utilisateur : votre-utilisateur-ssh
-Méthode d'auth : Votre mot de passe ou votre clé privée .pem / .pub.
-Autres alternatives (si vous ne voulez pas de SSH) :
-VPN (Wireguard / OpenVPN) : Vous rejoignez le réseau privé du serveur.
-Whitelist IP : Si vous avez une IP fixe, vous pouvez configurer votre pare-feu (UFW/Firewalld) pour n'autoriser QUE votre IP sur le port 3306, mais c'est moins flexible qu'un tunnel SSH.
-Conseil : Restez sur le Tunnel SSH, c'est la "Règle d'Or" en administration système pour les bases de données.
+### Schéma & Tables Clés
+*   **`consents`** : Stocke les validations finales des clients.
+*   **`sms_queue` / `mail_queue`** : Files d'attente pour les envois. Consultez les colonnes `last_error` et `provider_response` pour diagnostiquer les échecs d'envoi.
+*   **`otp_throttle`** : Gère le blocage temporaire des fraudeurs (anti-brute-force).
+
+---
+
+## 🛡️ Sécurité & Résilience
+
+### Hardening (Durcissement)
+*   **Rotation des logs** : Docker est configuré pour limiter chaque log à 3 fichiers de 10Mo.
+*   **Rate Limiting** : 
+    *   **Send OTP** : Max 3 envois par session.
+    *   **Verify OTP** : Max 5 tentatives avant blocage de 5 min (exponentiel).
+*   **Isolation** : Les conteneurs tournent avec des privilèges réduits (`no-new-privileges`).
+
+### Retry Mechanism
+Le serveur possède un système de "Retry" automatique :
+*   Si un SMS échoue (timeout), il est retenté immédiatement une fois.
+*   S'il échoue encore, il reste en `pending` dans la file et sera traité par le **Cron job** toutes les 5 minutes.
+
+---
+
+## 🛠️ Dépannage (Troubleshooting)
+
+**Q : Le client ne reçoit pas de SMS.**
+1. Ouvrez **Dozzle** (`:8888`).
+2. Cherchez le numéro du client.
+3. Vérifiez s'il y a une erreur `MTARGET API Error` ou `Network Timeout`.
+4. Vérifiez le solde du compte SMS via l'API Provider.
+
+**Q : L'application répond "Forbidden: Session contact mismatch".**
+*   C'est une protection de sécurité. Le client doit recommencer le processus depuis le début s'il change de numéro de téléphone en cours de route.
+
+**Q : Le serveur est lent.**
+*   Lancez `docker stats`. Si la RAM du service `server` dépasse 512Mo, redémarrez-le : `docker compose restart server`.
+
+---
+
+## 💾 Sauvegardes
+Il est recommandé d'exécuter un dump SQL quotidiennement :
+```bash
+docker exec consent-db mysqldump -u root -pRootPass123! consent_manager > backup_$(date +%F).sql
+```
