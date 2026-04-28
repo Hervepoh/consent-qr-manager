@@ -9,14 +9,16 @@ import compression from 'compression';
 import NodeCache from 'node-cache';
 import { db } from './db';
 import { otps, consents, otpThrottle } from './db/schema';
-import { eq, and, gt, desc } from 'drizzle-orm';
+import { eq, and, gt, desc, sql } from 'drizzle-orm';
 import { SMSService } from './services/sms.service';
 import { adminAuth } from './middleware/auth';
+import { registerCrons } from './crons';
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = parseInt(process.env.PORT || '3001', 10);
+const host = '0.0.0.0'; // Écoute sur toutes les interfaces réseau
 
 // --- Performance Infrastructure ---
 
@@ -38,7 +40,8 @@ app.use(helmet());
 // 2. Strict CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://localhost'
 ];
 
 app.use(cors({
@@ -81,14 +84,35 @@ const VALIDATORS = {
   CONTRACT: /^\d{9}$/
 };
 
+// --- Phone Normalization ---
+const normalizePhone = (phone: string): string => {
+  // Supprime tout sauf les chiffres
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Format standard Cameroun : +237 + 9 chiffres
+  if (cleaned.length === 9 && (cleaned.startsWith('6') || cleaned.startsWith('2'))) {
+    return `+237${cleaned}`;
+  }
+  if (cleaned.length === 12 && cleaned.startsWith('237')) {
+    return `+${cleaned}`;
+  }
+  if (cleaned.startsWith('+')) return cleaned;
+  return `+${cleaned}`;
+};
+
 // --- OTP Routes ---
 
 // Send OTP
 app.post('/api/otp/send', async (req, res) => {
-  const { contact, channel } = req.body;
+  let { contact, channel } = req.body;
 
   if (!contact || !channel) {
     return res.status(400).json({ error: 'Contact and channel are required' });
+  }
+
+  // Normalize phone for consistent DB storage
+  if (channel === 'SMS' || channel === 'WHATSAPP') {
+    contact = normalizePhone(contact);
   }
 
   // Validation
@@ -173,15 +197,43 @@ app.post('/api/otp/send', async (req, res) => {
   }
 });
 
+// --- Health Check ---
+app.get('/health', async (req, res) => {
+  try {
+    // Check DB connection
+    await db.execute(sql`SELECT 1`);
+    res.status(200).json({ status: 'OK', database: 'connected' });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(503).json({ status: 'Error', database: 'disconnected' });
+  }
+});
+
 // Verify OTP
 app.post('/api/otp/verify', async (req, res) => {
-  const { contact, code } = req.body;
+  let { contact, code } = req.body;
 
   if (!contact || !code) {
     return res.status(400).json({ error: 'Contact and code are required' });
   }
 
+  // Always attempt normalization for SMS/WhatsApp style contacts (digits only check)
+  // or simply normalize if it looks like a phone number.
+  // Given the earlier flow, we'll try to normalize it.
+  if (/^(\+237|237|6|2)/.test(contact)) {
+    contact = normalizePhone(contact);
+  }
+
   try {
+    // [FORTRESS] Brute-force protection for verification
+    let throttle = await db.query.otpThrottle.findFirst({
+      where: eq(otpThrottle.contact, contact)
+    });
+
+    if (throttle && throttle.blockedUntil && throttle.blockedUntil > new Date()) {
+      return res.status(429).json({ error: 'Too many attempts. Account temporary locked.' });
+    }
+
     const latestOtp = await db.query.otps.findFirst({
       where: and(
         eq(otps.contact, contact),
@@ -210,7 +262,34 @@ app.post('/api/otp/verify', async (req, res) => {
         token: sessionToken
       });
     } else {
-      res.status(400).json({ success: false, error: 'Invalid or expired code' });
+      // Increment throttle attempts on failure
+      const newAttempts = (throttle?.attempts || 0) + 1;
+      let nextBlockedUntil = null;
+      let nextDuration = throttle?.nextBlockDurationMinutes || 5;
+
+      if (newAttempts >= 5) { // Strict: 5 failed attempts = block
+        nextBlockedUntil = new Date(Date.now() + nextDuration * 60 * 1000);
+        nextDuration += 10; // Increasing penalty
+      }
+
+      if (!throttle) {
+        await db.insert(otpThrottle).values({
+          contact,
+          attempts: newAttempts,
+          blockedUntil: nextBlockedUntil,
+          nextBlockDurationMinutes: nextDuration
+        });
+      } else {
+        await db.update(otpThrottle)
+          .set({ attempts: newAttempts, blockedUntil: nextBlockedUntil, nextBlockDurationMinutes: nextDuration })
+          .where(eq(otpThrottle.contact, contact));
+      }
+
+      res.status(400).json({ 
+        success: false, 
+        error: 'Invalid or expired code',
+        attemptsLeft: Math.max(0, 5 - newAttempts)
+      });
     }
   } catch (error) {
     console.error('Error verifying OTP:', error);
@@ -325,6 +404,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+// ── Démarrage — écoute sur toutes les interfaces (0.0.0.0) ──
+app.listen(port, host, () => {
+  console.log(`✅  Server running on http://${host}:${port}`);
+
+  registerCrons();
+  console.log('⏱️  Crons enregistrés');
 });

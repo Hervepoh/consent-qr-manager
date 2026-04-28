@@ -59,7 +59,7 @@ check_health() {
   echo " ✅"
 }
 
-check_health "mysql"
+check_health "db"
 check_health "server"
 check_health "frontend"
 
@@ -67,7 +67,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅  Déploiement réussi !"
 echo ""
-echo "   🌐  Frontend  → http://localhost"
-echo "   🔌  API       → http://localhost:3000"
-echo "   🗄️   MySQL     → localhost:3306"
+echo "   🌐  Application  → http://localhost"
+echo "   🔌  API (Proxy)  → http://localhost/api"
+echo "   🗄️   Base de Données (MySQL) connectée"
 echo ""

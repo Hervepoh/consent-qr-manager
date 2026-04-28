@@ -1,8 +1,195 @@
+// services/sms.service.ts
+import { db } from '../db';
+import { smsQueue } from '../db/schema';
+import { eq, and, lte, lt } from 'drizzle-orm';
+
 export class SMSService {
-  static async sendOTP(phone: string, code: string): Promise<boolean> {
-    console.log(`[SMS MOCK] Sending OTP ${code} to ${phone}`);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return true;
+  private static readonly SMS_API_URL = "https://api-public.mtarget.fr/messages";
+  private static readonly USERNAME = process.env.SMS_USERNAME ?? "eneo";
+  private static readonly PASSWORD = process.env.SMS_PASSWORD ?? "CA2ah0o9y6JQ";
+  private static readonly SENDER = "Eneo";
+  private static readonly MAX_ATTEMPTS = 5;
+
+  // ─── Normalisation du numéro ────────────────────────────────────────────────
+  private static formatPhone(phone: string): string {
+    // Supprime espaces, tirets, parenthèses
+    let cleaned = phone.replace(/[\s\-().]/g, "");
+
+    // Déjà au bon format
+    if (cleaned.startsWith("+237")) return cleaned;
+
+    // Commence par 237 sans le +
+    if (cleaned.startsWith("237")) return "+" + cleaned;
+
+    // Numéro local camerounais (6XX ou 2XX — 9 chiffres)
+    if (/^[62]\d{8}$/.test(cleaned)) return "+237" + cleaned;
+
+    // Fallback — ajoute juste le +
+    if (!cleaned.startsWith("+")) cleaned = "+" + cleaned;
+    return cleaned;
+  }
+
+  // ─── Appel réel à l'API mtarget ─────────────────────────────────────────────
+  private static async callAPI(phone: string, message: string): Promise<boolean> {
+    const formattedPhone = this.formatPhone(phone);
+
+    const urlencoded = new URLSearchParams();
+    urlencoded.append("username", this.USERNAME);
+    urlencoded.append("password", this.PASSWORD);
+    urlencoded.append("msisdn", formattedPhone);
+    urlencoded.append("msg", message);
+    urlencoded.append("sender", this.SENDER);
+
+    const response = await fetch(this.SMS_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": "SERVERID=B",
+      },
+      body: urlencoded,
+      signal: AbortSignal.timeout(30_000), // timeout 30s pour plus de résilience
+    });
+
+    if (!response.ok) return false;
+
+    const result = await response.text();
+    const parsed = JSON.parse(result);
+    const smsResult = parsed?.results?.[0];
+
+    const success = smsResult?.code === "0" || smsResult?.code === 0;
+    if (!success) {
+      console.error(`[SMS] ❌ API error: ${smsResult?.reason}`);
+    }
+    return success;
+  }
+
+  // ─── Calcul du délai de retry exponentiel ───────────────────────────────────
+  private static retryDelay(attempts: number): Date {
+    // 1m, 2m, 3m, 5m, 10m
+    const delays = [1, 2, 3, 5, 10];
+    const minutes = delays[Math.min(attempts, delays.length - 1)];
+    return new Date(Date.now() + minutes * 60 * 1000);
+  }
+
+  // ─── PUBLIC: stocker + tenter l'envoi immédiatement ─────────────────────────
+  static async sendOTP(phone: string, code: string): Promise<{ queued: boolean; sent: boolean }> {
+    const message = `Votre code OTP est ${code}. Il expire dans 5 minutes.`;
+    const formattedPhone = this.formatPhone(phone);
+
+    // 1. Stocker en base avec status "pending"
+    const [inserted] = await db.insert(smsQueue).values({
+      phone: formattedPhone,
+      message,
+      status: 'pending',
+      attempts: 0,
+      maxAttempts: this.MAX_ATTEMPTS,
+    });
+
+    const queueId = Number(inserted.insertId ?? (inserted as any).lastInsertRowid);
+    console.log(`[SMS] 📥 Queued SMS #${queueId} for ${formattedPhone}`);
+
+    // 2. Tenter l'envoi immédiat
+    try {
+      const success = await this.callAPI(formattedPhone, message);
+
+      if (success) {
+        // ✅ Envoi réussi → update status sent
+        await db.update(smsQueue)
+          .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: 1 })
+          .where(eq(smsQueue.id, queueId));
+
+        console.log(`[SMS] ✅ SMS #${queueId} envoyé immédiatement`);
+        return { queued: true, sent: true };
+      } else {
+        // ❌ Échec → planifier retry
+        await db.update(smsQueue)
+          .set({
+            attempts: 1,
+            lastAttemptAt: new Date(),
+            scheduledFor: this.retryDelay(1),
+          })
+          .where(eq(smsQueue.id, queueId));
+
+        console.warn(`[SMS] ⚠️ SMS #${queueId} en attente de retry`);
+        return { queued: true, sent: false };
+      }
+    } catch (err) {
+      // Timeout ou erreur réseau → laisser le cron s'en charger
+      await db.update(smsQueue)
+        .set({ attempts: 1, lastAttemptAt: new Date(), scheduledFor: this.retryDelay(1) })
+        .where(eq(smsQueue.id, queueId));
+
+      console.error(`[SMS] 🔥 Erreur réseau pour #${queueId}:`, err);
+      return { queued: true, sent: false };
+    }
+  }
+
+  // ─── CRON: retry tous les SMS pending/failed non encore envoyés ──────────────
+  static async processPendingQueue(): Promise<void> {
+    const now = new Date();
+
+    const pending = await db.select()
+      .from(smsQueue)
+      .where(
+        and(
+          eq(smsQueue.status, 'pending'),
+          lte(smsQueue.scheduledFor, now),
+          lt(smsQueue.attempts, smsQueue.maxAttempts),
+        )
+      )
+      .limit(50); // traiter par batch
+
+    if (pending.length === 0) {
+      console.log('[SMS CRON] ✅ Aucun SMS en attente');
+      return;
+    }
+
+    console.log(`[SMS CRON] 🔄 Traitement de ${pending.length} SMS en attente...`);
+
+    for (const sms of pending) {
+      try {
+        const success = await this.callAPI(sms.phone, sms.message);
+        const newAttempts = sms.attempts + 1;
+
+        if (success) {
+          await db.update(smsQueue)
+            .set({ status: 'sent', sentAt: new Date(), lastAttemptAt: new Date(), attempts: newAttempts })
+            .where(eq(smsQueue.id, sms.id));
+          console.log(`[SMS CRON] ✅ SMS #${sms.id} envoyé (tentative ${newAttempts})`);
+        } else {
+          const isMaxed = newAttempts >= sms.maxAttempts;
+          await db.update(smsQueue)
+            .set({
+              attempts: newAttempts,
+              lastAttemptAt: new Date(),
+              status: isMaxed ? 'failed' : 'pending',
+              scheduledFor: isMaxed ? null : this.retryDelay(newAttempts),
+            })
+            .where(eq(smsQueue.id, sms.id));
+
+          if (isMaxed) {
+            console.error(`[SMS CRON] 💀 SMS #${sms.id} abandonné après ${newAttempts} tentatives`);
+          }
+        }
+      } catch (err) {
+        console.error(`[SMS CRON] 🔥 Erreur pour SMS #${sms.id}:`, err);
+      }
+    }
+  }
+
+  // ─── CRON NETTOYAGE: supprimer les SMS envoyés de plus d'un mois ─────────────
+  static async cleanupSentMessages(): Promise<void> {
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    const result = await db.delete(smsQueue)
+      .where(
+        and(
+          eq(smsQueue.status, 'sent'),
+          lte(smsQueue.sentAt, oneMonthAgo),
+        )
+      );
+
+    console.log(`[SMS CLEANUP] 🗑️ SMS supprimés: ${(result as any).affectedRows ?? '?'}`);
   }
 }

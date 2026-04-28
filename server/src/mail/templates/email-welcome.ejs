@@ -1,0 +1,28 @@
+<%
+const layoutData = {
+    title: 'Bienvenue sur MedicaApp !',
+    subtitle: 'Votre compte est désormais entièrement activé.',
+    body: `
+        <h2>Ravi de vous voir, ${name} ! 🎊</h2>
+        <p>Votre adresse email a été vérifiée avec succès. Vous faites maintenant officiellement partie de l'écosystème <strong>MedicaApp</strong> !</p>
+        <p>Notre plateforme est conçue pour simplifier la communication entre patients et professionnels de santé.</p>
+        <p>Voici ce que vous pouvez faire dès maintenant :</p>
+        <ul style="color: #4b5563; margin-bottom: 25px; line-height: 2;">
+            <li>Gérer vos rendez-vous et vos dossiers médicaux.</li>
+            <li>Accéder à vos comptes-rendus en toute sécurité.</li>
+            <li>Interagir avec les services hospitaliers et de laboratoire.</li>
+        </ul>
+        <p>Prêt à explorer votre nouvel espace de santé ? Cliquez ci-dessous :</p>
+        <div style="text-align: center; margin: 35px 0;">
+            <a href="${url || '#'}" class="button" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff !important; padding: 16px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">Accéder à mon espace santé</a>
+        </div>
+        <div class="highlight" style="background: #fdf2f8; border-left: 4px solid #f472b6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="color: #9d174d; margin: 0;"><strong>💡 Astuce :</strong> Gardez vos informations à jour dans votre profil pour un meilleur suivi.</p>
+        </div>
+        <p>Toute l'équipe MedicaApp vous souhaite une excellente expérience sur notre plateforme !</p>
+        <p>Cordialement,<br>L'équipe MedicaApp</p>
+    `
+};
+%>
+
+<%- include('base', layoutData) %>

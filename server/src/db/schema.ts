@@ -35,3 +35,43 @@ export const consents = mysqlTable('consents', {
   userAgent: text('user_agent'),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+export const smsQueue = mysqlTable('sms_queue', {
+  id: serial('id').primaryKey(),
+  phone: varchar('phone', { length: 20 }).notNull(),
+  message: text('message').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // pending | sent | failed
+  attempts: int('attempts').notNull().default(0),
+  maxAttempts: int('max_attempts').notNull().default(5),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  sentAt: timestamp('sent_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  scheduledFor: timestamp('scheduled_for').defaultNow(), // pour retry différé
+}, (table) => ({
+  statusIdx: index('status_idx').on(table.status),
+  scheduledIdx: index('scheduled_idx').on(table.scheduledFor),
+}));
+
+export const mailQueue = mysqlTable('mail_queue', {
+  id: serial('id').primaryKey(),
+  to: varchar('to', { length: 255 }).notNull(),
+  subject: varchar('subject', { length: 255 }).notNull(),
+  templateName: varchar('template_name', { length: 100 }).notNull(),
+  templateData: text('template_data').notNull(), // JSON stringifié
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  attempts: int('attempts').notNull().default(0),
+  maxAttempts: int('max_attempts').notNull().default(5),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  sentAt: timestamp('sent_at'),
+  scheduledFor: timestamp('scheduled_for').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  statusIdx: index('mail_status_idx').on(table.status),
+  scheduledIdx: index('mail_scheduled_idx').on(table.scheduledFor),
+}));
+
+export const cronLocks = mysqlTable('cron_locks', {
+  name: varchar('name', { length: 100 }).primaryKey(),
+  lockedAt: timestamp('locked_at').notNull(),
+  lockedUntil: timestamp('locked_until').notNull(), // TTL sécurité anti-deadlock
+});

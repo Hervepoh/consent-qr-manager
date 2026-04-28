@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────
-# Stage 1 : Build
+# Stage 1 : Build React/Vite → static files
 # ─────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # ─────────────────────────────────────────────
-# Stage 2 : Serve (image finale légère)
+# Stage 2 : Serve avec Nginx (image finale légère)
 # ─────────────────────────────────────────────
 FROM nginx:1.27-alpine AS production
 
@@ -35,7 +35,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

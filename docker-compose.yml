@@ -1,8 +1,37 @@
+# ══════════════════════════════════════════════════════════
+#  consent-qr-manager — Docker Compose Production
+# ══════════════════════════════════════════════════════════
+
 services:
 
-  # ══════════════════════════════════════════
-  #  Serveur API Express (port 3000)
-  # ══════════════════════════════════════════
+  # ──────────────────────────────────────────────────────
+  #  Base de données MySQL
+  # ──────────────────────────────────────────────────────
+  db:
+    image: mysql:8.4
+    container_name: consent-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - app-network
+
+  # ──────────────────────────────────────────────────────
+  #  Serveur API Express (port 3001 interne uniquement)
+  # ──────────────────────────────────────────────────────
   server:
     build:
       context: ./server
@@ -11,29 +40,36 @@ services:
     image: consent-server:latest
     container_name: consent-server
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+    expose:
+      - "3001"
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-1000}
+      DB_HOST: db
+      DB_PORT: 3306
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ADMIN_SECRET: ${ADMIN_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
+    command: >
+      sh -c "npx drizzle-kit push --config=drizzle.config.prod.js && node dist/index.js"
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 15s
+      retries: 5
+      start_period: 20s
     networks:
       - app-network
 
-  # ══════════════════════════════════════════
-  #  Frontend React/Vite (port 80)
-  # ══════════════════════════════════════════
+  # ──────────────────────────────────────────────────────
+  #  Frontend React/Vite servi par Nginx (port 80)
+  # ──────────────────────────────────────────────────────
   frontend:
     build:
       context: .
@@ -48,13 +84,20 @@ services:
       server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 10s
     networks:
       - app-network
+
+# ──────────────────────────────────────────────────────
+#  Volumes & Réseaux
+# ──────────────────────────────────────────────────────
+volumes:
+  db-data:
+    driver: local
 
 networks:
   app-network:

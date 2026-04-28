@@ -36,7 +36,7 @@ type View = 'consent' | 'otp' | 'profile' | 'success';
 type Channel = 'SMS' | 'WHATSAPP' | 'EMAIL';
 type Status = 'Bailleur' | 'Locataire' | 'Autre';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 const StepIndicator = ({ current, total }: { current: number, total: number }) => (
   <div className="flex gap-1 justify-center mb-4">
