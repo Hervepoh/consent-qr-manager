@@ -51,7 +51,7 @@ docker compose logs -f server
 > [!TIP]
 > **Identifiants Uptime Kuma** :
 > - Utilisateur : `admin`
-> - Mot de passe : `x5bi8!QUbMkrBR_` (À modifier au premier lancement)
+> - Mot de passe : voir `.env` (À modifier au premier lancement)
 
 ---
 
@@ -61,7 +61,7 @@ docker compose logs -f server
 Le port MySQL (**3306**) n'est pas exposé sur Internet. Pour y accéder avec un outil comme DBeaver :
 1.  Utilisez un **Tunnel SSH** vers l'IP du serveur.
 2.  Hôte local : `127.0.0.1` | Port : `3308` (mappé vers 3306 interne).
-3.  Utilisateur : `consent_user` | Pass : `ConsentPass123!` (voir `.env`).
+3.  Utilisateur : `consent_user` | Pass :  (voir `.env`).
 
 ### Schéma & Tables Clés
 *   **`consents`** : Stocke les validations finales des clients.
